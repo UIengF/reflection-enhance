@@ -129,6 +129,18 @@ def main() -> int:
             )
             return 0
 
+        if _matches_ignore_patterns(reflection, config):
+            write_log(
+                "review-worker",
+                {
+                    "timestamp": utc_now(),
+                    "session_id": session_id,
+                    "status": "reflection_ignored",
+                    "reason": "matches_ignore_patterns",
+                },
+            )
+            return 0
+
         warnings = _validate_reflection(reflection)
         if warnings:
             write_log(
@@ -443,6 +455,17 @@ def _save_raw_output(raw: str, kind: str, session_id: str) -> None:
         path.write_text(truncate_text(redact_text(raw) or "", 20000) or "", encoding="utf-8", newline="\n")
     except Exception:
         pass
+
+
+def _matches_ignore_patterns(reflection: dict[str, Any], config: dict[str, Any]) -> bool:
+    patterns = config.get("ignore_patterns") or []
+    if not patterns:
+        return False
+    text = " ".join(
+        str(reflection.get(key) or "")
+        for key in ("lesson", "avoid_next_time", "fingerprint_source")
+    ).lower()
+    return any(pattern.lower() in text for pattern in patterns)
 
 
 def _validate_reflection(reflection: dict[str, Any]) -> list[str]:

@@ -40,6 +40,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "patterns": ["api_key", "token", "password", "authorization", "cookie", "private_key"],
     },
+    "ignore_patterns": [
+        "gh auth",
+        "gh: not logged in",
+        "GitHub CLI not authenticated",
+    ],
     "data_retention": {
         "session_events_days": 7,
         "candidate_pending_days": 30,
