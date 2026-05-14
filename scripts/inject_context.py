@@ -24,7 +24,7 @@ def main() -> int:
         output["hookSpecificOutput"]["additionalContext"] = context
     except Exception:
         pass
-    sys.stdout.write(json.dumps(output, ensure_ascii=False))
+    sys.stdout.write(json.dumps(output, ensure_ascii=True))
     return 0
 
 
