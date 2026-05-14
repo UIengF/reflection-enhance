@@ -6,8 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}\\scripts\\event_recorder.py\"",
-            "shell": "powershell"
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/event_recorder.py\""
           }
         ]
       }
@@ -18,8 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}\\scripts\\event_recorder.py\"",
-            "shell": "powershell"
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/event_recorder.py\""
           }
         ]
       }
@@ -30,8 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}\\scripts\\review_worker.py\"",
-            "shell": "powershell",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/review_worker.py\"",
             "async": true
           }
         ]
@@ -43,8 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}\\scripts\\inject_context.py\"",
-            "shell": "powershell"
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/inject_context.py\""
           }
         ]
       }

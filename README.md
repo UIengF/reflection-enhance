@@ -4,28 +4,134 @@
 
 `reflection-enhance` 是一个 Claude Code 插件。它通过 hooks 记录失败、纠错和长回合上下文，在会话结束后异步复盘，并在后续提示提交时注入高相关性的经验提醒。
 
-## 功能
+## 前置条件
 
-- `PostToolUse`: 记录工具调用结果、耗时、路径和输出摘要，用于后续复盘。
-- `PostToolUseFailure`: 记录失败事件，并对命令、输出和错误信息做敏感信息脱敏。
-- `Stop`: 在会话结束时异步分析事件和 transcript，沉淀反思规则或候选技能。
-- `UserPromptSubmit`: 在新提示提交时读取历史反思，并注入与当前工作目录和上下文相关的提醒。
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 已安装
+- Python 3.10+
+- `python` 命令在 PATH 中可用
 
 ## 安装
 
-1. 将仓库克隆到 Claude Code 本地插件目录：
+### 1. 克隆仓库
 
-   ```powershell
-   git clone https://github.com/UIengF/reflection-enhance.git "$env:USERPROFILE\.claude\plugins\local\reflection-enhance"
-   ```
+```bash
+git clone https://github.com/UIengF/reflection-enhance.git ~/.claude/plugins/local/reflection-enhance
+```
 
-2. 确认插件 manifest 存在：
+Windows (PowerShell):
 
-   ```powershell
-   Get-Content "$env:USERPROFILE\.claude\plugins\local\reflection-enhance\.claude-plugin\plugin.json"
-   ```
+```powershell
+git clone https://github.com/UIengF/reflection-enhance.git "$env:USERPROFILE\.claude\plugins\local\reflection-enhance"
+```
 
-3. 在 Claude Code 中启用本地插件后重启会话，使 hooks 生效。
+### 2. 启用插件
+
+在 `~/.claude/settings.json` 中添加：
+
+```json
+{
+  "enabledPlugins": {
+    "reflection-enhance@local": true
+  }
+}
+```
+
+如果文件已有其他内容，只在 `enabledPlugins` 对象中加入这一行，不要替换整个文件。
+
+### 3. 注册 Hooks
+
+在 `~/.claude/settings.json` 中添加 `hooks` 部分（与 `enabledPlugins` 同级）：
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/event_recorder.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/event_recorder.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/review_worker.py\"",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/inject_context.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+如果已有 `hooks` 部分，将上述条目合并进去，不要覆盖已有的 hooks。
+
+### 4. 验证安装
+
+重启 Claude Code 会话后：
+
+1. 输入 `/hooks` 查看已注册的 hooks，确认 4 个 hook 都在列表中
+2. 进行一轮包含工具调用的对话
+3. 检查数据目录是否生成了事件文件：
+
+```bash
+ls ~/.claude/plugin-data/reflection-enhance/sessions/
+```
+
+## 功能
+
+| Hook | 触发时机 | 作用 |
+|------|---------|------|
+| `PostToolUse` | 工具调用成功后 | 记录事件（工具名、输入摘要、输出摘要、耗时） |
+| `PostToolUseFailure` | 工具调用失败后 | 记录失败事件，自动脱敏敏感信息 |
+| `Stop` | 每轮对话结束 | 异步复盘：提取反思 → 生成候选 skill |
+| `UserPromptSubmit` | 用户发送消息时 | 注入历史反思提醒和候选 skill 决策提示 |
+
+## 工作流程
+
+```text
+用户发送消息
+  -> UserPromptSubmit hook
+  -> inject_context.py 加载相关反思注入上下文
+  -> Claude 执行任务（带反思提醒）
+  -> PostToolUse / PostToolUseFailure hooks
+  -> event_recorder.py 记录脱敏事件
+  -> Stop hook
+  -> review_worker.py (Haiku) 提取反思教训
+  -> review_worker.py (Sonnet) 生成候选 skill
+  -> 候选 skill 暂存为 staging，等待用户决策
+  -> 下次会话时用户可回复 create:name 或 skip:name
+```
 
 ## 配置
 
@@ -35,36 +141,47 @@
 ~/.claude/plugin-data/reflection-enhance
 ```
 
-也可以通过环境变量覆盖：
+可通过环境变量 `CLAUDE_PLUGIN_DATA` 覆盖。
 
-```powershell
-$env:CLAUDE_PLUGIN_DATA = "$env:USERPROFILE\.claude\plugin-data\reflection-enhance"
+可选配置文件为数据目录下的 `config.json`：
+
+```json
+{
+  "review_mode": "split",
+  "trigger": {
+    "min_tool_iterations": 5,
+    "min_duration_seconds": 60
+  },
+  "model": {
+    "review_model": "haiku",
+    "synthesis_model": "sonnet"
+  },
+  "rolling_window": {
+    "window_size": 5,
+    "consecutive_failures_threshold": 3
+  },
+  "limits": {
+    "max_transcript_chars": 120000,
+    "max_injection_chars": 2000,
+    "max_injection_items": 5
+  },
+  "redaction": {
+    "enabled": true,
+    "patterns": ["api_key", "token", "password"]
+  }
+}
 ```
 
-可选配置文件为数据目录下的 `config.json`。常用配置项包括：
-
-- `review_mode`: 复盘模式，默认 `split`。
-- `trigger`: 控制何时触发复盘，例如最少工具迭代次数和最短会话时长。
-- `model`: 配置复盘与规则合成使用的模型别名。
-- `rolling_window`: 控制连续失败检测窗口。
-- `limits`: 控制 transcript、事件文件和注入内容长度。
-- `redaction`: 控制敏感信息脱敏开关和匹配模式。
-- `data_retention`: 控制事件和候选技能保留时间。
-
-## 工作流程
-
-```text
-User prompt
-  -> UserPromptSubmit hook
-  -> inject_context.py loads relevant reflections
-  -> Claude Code works with injected reminders
-  -> PostToolUse / PostToolUseFailure hooks
-  -> event_recorder.py appends sanitized session events
-  -> Stop hook
-  -> review_worker.py reviews transcript and events
-  -> reflections, feedback rules, or candidate skills are stored
-  -> later sessions reuse those lessons
-```
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `review_mode` | 复盘模式：`split`（反思+skill分离）、`single`、`off` | `split` |
+| `trigger.min_tool_iterations` | 触发复盘的最少工具调用次数 | `5` |
+| `trigger.min_duration_seconds` | 触发复盘的最短会话时长（秒） | `60` |
+| `model.review_model` | 反思使用的模型 | `haiku` |
+| `model.synthesis_model` | skill 生成使用的模型 | `sonnet` |
+| `rolling_window.window_size` | 滑动窗口大小 | `5` |
+| `rolling_window.consecutive_failures_threshold` | 连续失败告警阈值 | `3` |
+| `redaction.enabled` | 是否启用敏感信息脱敏 | `true` |
 
 ## 许可证
 
