@@ -9,3 +9,10 @@ dist/
 build/
 .venv/
 data/
+
+# Test files (local only)
+tests/
+pytest.ini
+.codex-pytest-tmp/
+.pytest-tmp/
+.pytest_cache/
