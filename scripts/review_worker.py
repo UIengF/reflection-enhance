@@ -176,6 +176,7 @@ def main() -> int:
                 "candidates_written": candidates_written,
             },
         )
+        _output_reflection_prompt(stored_reflection, session_id)
     except Exception as exc:
         try:
             write_log("review-worker", {"timestamp": utc_now(), "status": "error", "message": str(exc)})
@@ -186,6 +187,35 @@ def main() -> int:
 
 def _session_id(payload: dict[str, Any]) -> str:
     return str(payload.get("session_id") or payload.get("sessionId") or "unknown-session")
+
+
+def _output_reflection_prompt(reflection: dict[str, Any], session_id: str = "") -> None:
+    lesson = str(reflection.get("lesson") or "").strip()
+    avoid = str(reflection.get("avoid_next_time") or "").strip()
+    reflection_id = str(reflection.get("reflection_id") or "").strip()
+    if not lesson and not avoid:
+        return
+    if session_id:
+        marker = session_dir(session_id) / ".pending_shown"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    lines = ["New reflection generated:"]
+    prefix = f"[{reflection_id}] " if reflection_id else ""
+    lines.append(f"- {prefix}Lesson: {lesson}")
+    if avoid:
+        lines.append(f"  Avoid next time: {avoid}")
+    lines.append(f'\n→ Reply "keep:{reflection_id} reason" or "dismiss:{reflection_id} reason". Your feedback helps the system learn what to remember.')
+    context = "\n".join(lines)
+    output = json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "Stop",
+                "additionalContext": context,
+            }
+        },
+        ensure_ascii=True,
+    )
+    sys.stdout.write(output)
 
 
 def _read_events(session_id: str, max_chars: int) -> str:
