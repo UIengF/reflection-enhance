@@ -51,7 +51,9 @@ def build_context(config: dict[str, Any], cwd: str = "") -> str:
             lesson = item.get("lesson") or ""
             avoid = item.get("avoid_next_time") or ""
             if lesson or avoid:
-                lines.append(f"- Lesson: {lesson} Avoid next time: {avoid}".strip())
+                reflection_id = str(item.get("reflection_id") or "").strip()
+                prefix = f"[{reflection_id}] " if reflection_id else ""
+                lines.append(f"- {prefix}Lesson: {lesson} Avoid next time: {avoid}".strip())
         if len(lines) > 1:
             parts.append("\n".join(lines))
 

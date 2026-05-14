@@ -173,6 +173,7 @@ def test_build_context_cold_start_prompt(isolated_data_root):
     context = inject_context.build_context(_config(), "")
 
     assert "你的反馈将帮助系统学习什么值得记住" in context
+    assert "reflection-1" in context
     assert "keep:<reflection_id>" in context
 
 
@@ -198,3 +199,29 @@ def test_build_context_no_prompt_after_judged(isolated_data_root):
 
     assert "Keep reusable lessons." in context
     assert "你的反馈将帮助系统学习什么值得记住" not in context
+
+
+def test_build_context_prompt_after_judged_when_feedback_pending(isolated_data_root):
+    _write_index(
+        isolated_data_root,
+        {
+            "judged_count": 5,
+            "reflections": {
+                "fp": {
+                    "fingerprint": "fp",
+                    "reflection_id": "reflection-pending",
+                    "lesson": "Pending lesson.",
+                    "avoid_next_time": "Decide whether to keep it.",
+                    "confidence": 0.9,
+                    "updated_at": "2026-05-14T00:00:00Z",
+                    "needs_user_feedback": True,
+                }
+            },
+        },
+    )
+
+    context = inject_context.build_context(_config(), "")
+
+    assert "Pending lesson." in context
+    assert "reflection-pending" in context
+    assert "你的反馈将帮助系统学习什么值得记住" in context

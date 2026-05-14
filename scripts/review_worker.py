@@ -493,7 +493,7 @@ def _store_reflection(reflection: dict[str, Any], session_id: str, decision: dic
 
     root = data_root() / "reflections"
     index_path = root / "index.json"
-    index = _load_index(index_path)
+    index_doc, index = _load_index_parts(index_path)
     existing = index.get(fp)
     if isinstance(existing, dict):
         stored["reflection_id"] = existing.get("reflection_id") or reflection_id
@@ -516,7 +516,7 @@ def _store_reflection(reflection: dict[str, Any], session_id: str, decision: dic
         "seen_count": stored["seen_count"],
         "evidence_refs": stored["evidence_refs"],
     }
-    atomic_write_json(index_path, index)
+    _write_index_parts(index_path, index_doc, index)
     _append_reflection_markdown(root / "reflections.md", stored, decision)
     return stored
 
@@ -577,23 +577,40 @@ def _auto_judge_reflection(reflection: dict[str, Any]) -> None:
 
 def _mark_reflection_needs_user_feedback(reflection: dict[str, Any]) -> None:
     index_path = data_root() / "reflections" / "index.json"
-    index = _load_index(index_path)
+    index_doc, index = _load_index_parts(index_path)
     fp = str(reflection.get("fingerprint") or "")
     if not fp or fp not in index or not isinstance(index.get(fp), dict):
         return
     index[fp]["needs_user_feedback"] = True
-    atomic_write_json(index_path, index)
+    _write_index_parts(index_path, index_doc, index)
 
 
-def _load_index(path: Path) -> dict[str, Any]:
+def _load_index_parts(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    document = _load_index_document(path)
+    reflections = document.get("reflections")
+    if isinstance(reflections, dict):
+        return document, reflections
+    entries = {k: v for k, v in document.items() if isinstance(v, dict)}
+    meta = {k: v for k, v in document.items() if not isinstance(v, dict)}
+    meta["reflections"] = entries
+    return meta, entries
+
+
+def _write_index_parts(path: Path, document: dict[str, Any], reflections: dict[str, Any]) -> None:
+    if document:
+        document["reflections"] = reflections
+        atomic_write_json(path, document)
+        return
+    atomic_write_json(path, reflections)
+
+
+def _load_index_document(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
         with path.open("r", encoding="utf-8") as handle:
             loaded = json.load(handle)
         if isinstance(loaded, dict):
-            if isinstance(loaded.get("reflections"), dict):
-                return loaded["reflections"]
             return loaded
     except Exception:
         try:
@@ -602,6 +619,10 @@ def _load_index(path: Path) -> dict[str, Any]:
         except Exception:
             pass
     return {}
+
+
+def _load_index(path: Path) -> dict[str, Any]:
+    return _load_index_parts(path)[1]
 
 
 def _append_reflection_markdown(path: Path, reflection: dict[str, Any], decision: dict[str, Any]) -> None:

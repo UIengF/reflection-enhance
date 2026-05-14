@@ -54,6 +54,8 @@ def collect_feedback(reflection_id: str, action: str, reason: str) -> None:
     }
     append_jsonl(_feedback_log_path(), record)
     _increment_judged_count()
+    _clear_pending_feedback(str(reflection_id))
+    _reset_auto_judgment_counter()
 
 
 def decide_candidate(candidate_name: str, action: str) -> None:
@@ -240,6 +242,36 @@ def _increment_judged_count() -> None:
     except Exception:
         index["judged_count"] = 1
     atomic_write_json(path, index)
+
+
+def _clear_pending_feedback(reflection_id: str) -> None:
+    if not reflection_id:
+        return
+    path = data_root() / "reflections" / "index.json"
+    index = _read_json(path)
+    if not index:
+        return
+    items = index.get("reflections") if isinstance(index.get("reflections"), dict) else index
+    changed = False
+    for item in items.values():
+        if isinstance(item, dict) and str(item.get("reflection_id") or "") == reflection_id:
+            if item.pop("needs_user_feedback", None) is not None:
+                changed = True
+    if changed:
+        atomic_write_json(path, index)
+
+
+def _reset_auto_judgment_counter() -> None:
+    path = _rules_path()
+    rules = _read_json(path)
+    metadata = rules.get("metadata") if isinstance(rules, dict) else None
+    if not isinstance(metadata, dict):
+        return
+    if metadata.get("auto_judgments_since_user_feedback") == 0:
+        return
+    metadata["auto_judgments_since_user_feedback"] = 0
+    metadata["last_user_feedback_at"] = utc_now()
+    atomic_write_json(path, rules)
 
 
 def _call_claude(prompt: str, config: dict[str, Any], model: str | None = None) -> str:

@@ -26,6 +26,36 @@ def test_collect_feedback_writes_log(isolated_data_root):
     assert rows[0]["timestamp"]
 
 
+def test_collect_feedback_clears_pending_and_resets_auto_counter(isolated_data_root):
+    index_path = isolated_data_root / "reflections" / "index.json"
+    atomic_write_json(
+        index_path,
+        {
+            "judged_count": 4,
+            "reflections": {
+                "fp": {
+                    "fingerprint": "fp",
+                    "reflection_id": "reflection-1",
+                    "lesson": "Pending lesson.",
+                    "needs_user_feedback": True,
+                }
+            },
+        },
+    )
+    rules_path = isolated_data_root / "reflections" / "rules.json"
+    atomic_write_json(rules_path, {"rules": [], "metadata": {"auto_judgments_since_user_feedback": 9}})
+
+    feedback_collector.collect_feedback("reflection-1", "keep", "durable lesson")
+
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    reflection = index["reflections"]["fp"]
+    assert index["judged_count"] == 5
+    assert "needs_user_feedback" not in reflection
+    rules = json.loads(rules_path.read_text(encoding="utf-8"))
+    assert rules["metadata"]["auto_judgments_since_user_feedback"] == 0
+    assert rules["metadata"]["last_user_feedback_at"]
+
+
 def test_should_synthesize_rules_at_threshold(isolated_data_root):
     for index in range(5):
         feedback_collector.collect_feedback(f"r-{index}", "keep", "reason")

@@ -145,9 +145,46 @@ def test_store_reflection_deduplicates_by_fingerprint(isolated_data_root):
     assert second["seen_count"] == 2
 
     index = json.loads((isolated_data_root / "reflections" / "index.json").read_text(encoding="utf-8"))
-    assert len(index) == 1
-    stored = next(iter(index.values()))
+    reflections = index.get("reflections", index)
+    assert len(reflections) == 1
+    stored = next(iter(reflections.values()))
     assert stored["seen_count"] == 2
+
+
+def test_store_reflection_preserves_index_metadata(isolated_data_root):
+    index_path = isolated_data_root / "reflections" / "index.json"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(
+        json.dumps(
+            {
+                "judged_count": 4,
+                "reflections": {
+                    "existing": {
+                        "fingerprint": "existing",
+                        "reflection_id": "old",
+                        "lesson": "Existing lesson.",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    reflection = {
+        "should_record": True,
+        "lesson": "Check failures.",
+        "avoid_next_time": "Run focused tests.",
+        "fingerprint_source": "new source",
+        "confidence": 0.8,
+        "evidence_refs": [{"type": "event", "ref": "event:1", "summary": "failure"}],
+    }
+    decision = {"reason": "eligible", "has_error": True, "has_correction": False, "tool_iterations": 5, "duration_seconds": 1}
+
+    review_worker._store_reflection(reflection, "session-a", decision)
+
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    assert index["judged_count"] == 4
+    assert "existing" in index["reflections"]
+    assert len(index["reflections"]) == 2
 
 
 def test_store_candidates_deduplicates_by_key(isolated_data_root):
