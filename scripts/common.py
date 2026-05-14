@@ -162,6 +162,120 @@ def truncate_transcript(text: Any, max_chars: int = 120000) -> str | None:
     return value[:head_chars] + "...[truncated]..." + value[-tail_chars:]
 
 
+def load_index_document() -> dict[str, Any]:
+    path = data_root() / "reflections" / "index.json"
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            parsed = json.load(handle)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def load_pending_reflections(max_items: int = 5, cwd: str | None = None) -> list[dict[str, Any]]:
+    document = load_index_document()
+    reflections = document.get("reflections")
+    if isinstance(reflections, dict):
+        items = list(reflections.values())
+    elif isinstance(document, dict):
+        items = [v for v in document.values() if isinstance(v, dict) and "lesson" in v]
+    else:
+        return []
+    pending = [item for item in items if isinstance(item, dict) and item.get("needs_user_feedback")]
+    if cwd:
+        pending = [item for item in pending if _reflection_matches_cwd(item, cwd)]
+    pending = _dedupe_by_fingerprint(pending)
+    pending.sort(
+        key=lambda x: _safe_float(x.get("confidence")),
+        reverse=True,
+    )
+    return pending[:max_items]
+
+
+def load_staging_candidates(max_items: int = 10) -> list[dict[str, Any]]:
+    candidates_dir = data_root() / "candidate-skills"
+    if not candidates_dir.exists():
+        return []
+    results: list[dict[str, Any]] = []
+    for meta_path in candidates_dir.glob("*/candidate.json"):
+        try:
+            with meta_path.open("r", encoding="utf-8") as handle:
+                meta = json.load(handle)
+            if isinstance(meta, dict) and meta.get("status") == "staging":
+                results.append(meta)
+        except Exception:
+            continue
+    return results[:max_items]
+
+
+def format_pending_reflection_context(max_chars: int = 2000, cwd: str | None = None) -> str:
+    reflections = load_pending_reflections(cwd=cwd)
+    candidates = load_staging_candidates()
+    if not reflections and not candidates:
+        return ""
+    parts: list[str] = []
+    if reflections:
+        lines = ["Reflection-enhancement reminders from previous sessions:"]
+        for item in reflections:
+            lesson = item.get("lesson") or ""
+            avoid = item.get("avoid_next_time") or ""
+            if lesson or avoid:
+                reflection_id = str(item.get("reflection_id") or "").strip()
+                prefix = f"[{reflection_id}] " if reflection_id else ""
+                lines.append(f"- {prefix}Lesson: {lesson} Avoid next time: {avoid}".strip())
+        if len(lines) > 1:
+            parts.append("\n".join(lines))
+    if candidates:
+        lines = ["候选 skill 待创建决策:"]
+        for candidate in candidates:
+            name = str(candidate.get("name") or "?")
+            confidence = candidate.get("confidence")
+            lines.append(f"- {name} (confidence: {confidence})")
+            failure_pattern = str(candidate.get("failure_pattern") or "").strip()
+            if failure_pattern:
+                lines.append(f"  失败模式: {failure_pattern}")
+            reuse_scope = str(candidate.get("reuse_scope") or "").strip()
+            if reuse_scope:
+                lines.append(f"  复用范围: {reuse_scope}")
+        lines.append('→ 回复 "create:{name}" 或 "skip:{name}"')
+        parts.append("\n".join(lines))
+    if reflections:
+        parts.append('→ 回复 "keep:<reflection_id> 原因" 或 "dismiss:<reflection_id> 原因"。你的反馈将帮助系统学习什么值得记住。')
+    text = "\n\n".join(parts)
+    if len(text) > max_chars:
+        text = text[:max_chars] + "...[truncated]"
+    return text
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except Exception:
+        return 0.0
+
+
+def _reflection_matches_cwd(item: dict[str, Any], cwd: str) -> bool:
+    cwd_lower = str(cwd).replace("\\", "/").rstrip("/").lower()
+    if not cwd_lower:
+        return True
+    session_ids = item.get("session_ids") or []
+    return any(cwd_lower in str(session_id).replace("\\", "/").lower() for session_id in session_ids)
+
+
+def _dedupe_by_fingerprint(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in items:
+        key = str(item.get("fingerprint") or item.get("reflection_id") or id(item))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
 def _merge_dict(base: dict[str, Any], override: dict[str, Any]) -> None:
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(base.get(key), dict):

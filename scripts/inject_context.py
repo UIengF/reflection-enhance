@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from common import data_root, load_config, read_stdin_json, safe_name, truncate_text
+from common import data_root, load_config, read_stdin_json, safe_name, session_dir, truncate_text
 
 
 def main() -> int:
@@ -20,8 +20,11 @@ def main() -> int:
         payload = read_stdin_json()
         config = load_config()
         cwd = _extract_cwd(payload)
+        session_id = _extract_session_id(payload)
         context = build_context(config, cwd)
         output["hookSpecificOutput"]["additionalContext"] = context
+        if _has_pending_decision_prompt(context) and session_id:
+            _mark_pending_shown(session_id)
     except Exception:
         pass
     sys.stdout.write(json.dumps(output, ensure_ascii=True))
@@ -34,6 +37,26 @@ def _extract_cwd(payload: dict[str, Any]) -> str:
         if value:
             return str(value).replace("\\", "/").rstrip("/")
     return ""
+
+
+def _extract_session_id(payload: dict[str, Any]) -> str:
+    for key in ("session_id", "sessionId", "conversation_id", "conversationId"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def _mark_pending_shown(session_id: str) -> None:
+    if not session_id:
+        return
+    marker = session_dir(session_id) / ".pending_shown"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+
+
+def _has_pending_decision_prompt(context: str) -> bool:
+    return "keep:<reflection_id>" in context or "create:{name}" in context
 
 
 def build_context(config: dict[str, Any], cwd: str = "") -> str:

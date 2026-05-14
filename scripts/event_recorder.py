@@ -6,7 +6,7 @@ import uuid
 from collections import deque
 from typing import Any
 
-from common import append_jsonl, load_config, redact_text, session_dir, truncate_text, utc_now
+from common import append_jsonl, format_pending_reflection_context, load_config, redact_text, session_dir, truncate_text, utc_now
 
 ROLLING_WINDOW_WARNING = (
     "Warning: Recent tool calls show a pattern of consecutive failures. "
@@ -26,18 +26,17 @@ def main() -> int:
         if events_path.exists() and events_path.stat().st_size >= max_bytes:
             return 0
         append_jsonl(events_path, event)
-        warning = _check_rolling_window(event["session_id"], config)
-        if warning and not _has_already_warned(event["session_id"]):
-            _mark_warned(event["session_id"])
+        context = _build_additional_context(event["session_id"], config, event)
+        if context:
             print(
                 json.dumps(
                     {
                         "hookSpecificOutput": {
                             "hookEventName": "PostToolUse",
-                            "additionalContext": warning,
+                            "additionalContext": context,
                         }
                     },
-                    ensure_ascii=False,
+                    ensure_ascii=True,
                     sort_keys=True,
                 )
             )
@@ -70,6 +69,7 @@ def build_event(payload: dict[str, Any], config: dict[str, Any]) -> dict[str, An
         "status": status,
         "duration_ms": _first(payload, "duration_ms", "durationMs", "elapsed_ms", "elapsedMs", default=None),
         "input_summary": {
+            "cwd": clean(_first(payload, "cwd", "currentWorkingDirectory", "working_directory", default=None) or _find_key(tool_input, "cwd"), max_chars=1000),
             "command": clean(_find_key(tool_input, "command"), max_chars=1000),
             "path_refs": _path_refs(tool_input),
             "args_redacted": clean(tool_input, max_chars=3000),
@@ -133,6 +133,45 @@ def _path_refs(value: Any) -> list[str]:
 
 def _has_error(payload: dict[str, Any]) -> bool:
     return bool(_first(payload, "error", "exception", default=None))
+
+
+def _build_additional_context(session_id: str, config: dict[str, Any], event: dict[str, Any] | None = None) -> str:
+    parts: list[str] = []
+    warning = _check_rolling_window(session_id, config)
+    if warning and not _has_already_warned(session_id):
+        _mark_warned(session_id)
+        parts.append(warning)
+    if not _pending_shown(session_id):
+        max_chars = int(config.get("limits", {}).get("max_injection_chars", 2000))
+        pending = format_pending_reflection_context(max_chars=max_chars, cwd=_extract_cwd(event or {}))
+        if pending:
+            _mark_pending_shown(session_id)
+            parts.append(pending)
+    return "\n\n".join(parts)
+
+
+def _extract_cwd(event: dict[str, Any]) -> str:
+    cwd = event.get("input_summary", {}).get("cwd")
+    if cwd:
+        return str(cwd).replace("\\", "/").rstrip("/")
+    refs = event.get("input_summary", {}).get("path_refs", [])
+    if not isinstance(refs, list):
+        return ""
+    for ref in refs:
+        value = str(ref or "").replace("\\", "/").rstrip("/")
+        if value:
+            return value
+    return ""
+
+
+def _pending_shown(session_id: str) -> bool:
+    return (session_dir(session_id) / ".pending_shown").exists()
+
+
+def _mark_pending_shown(session_id: str) -> None:
+    marker = session_dir(session_id) / ".pending_shown"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
 
 
 def _check_rolling_window(session_id: str, config: dict[str, Any]) -> str | None:

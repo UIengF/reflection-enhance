@@ -192,3 +192,139 @@ def _write_events(session_id: str, events: list[dict[str, str]]) -> None:
 def _run_main(monkeypatch, payload: dict[str, object]) -> None:
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
     assert event_recorder.main() == 0
+
+
+def _write_reflections(root, reflections_dict):
+    path = root / "reflections" / "index.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(reflections_dict), encoding="utf-8")
+
+
+def test_pending_reflection_injected_on_post_tool_use(isolated_data_root, monkeypatch, capsys):
+    _write_reflections(
+        isolated_data_root,
+        {
+            "reflections": {
+                "fp1": {
+                    "fingerprint": "fp1",
+                    "reflection_id": "r-1",
+                    "lesson": "Always verify tests pass",
+                    "avoid_next_time": "Skipping test verification",
+                    "confidence": 0.9,
+                    "needs_user_feedback": True,
+                }
+            },
+            "judged_count": 0,
+        },
+    )
+
+    _run_main(monkeypatch, {"session_id": "test-s", "tool_name": "Bash"})
+
+    output = json.loads(capsys.readouterr().out)
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "Always verify tests pass" in ctx
+    assert "r-1" in ctx
+    assert "keep:<reflection_id>" in ctx
+
+
+def test_pending_reflection_only_shown_once(isolated_data_root, monkeypatch, capsys):
+    _write_reflections(
+        isolated_data_root,
+        {
+            "reflections": {
+                "fp1": {
+                    "fingerprint": "fp1",
+                    "reflection_id": "r-1",
+                    "lesson": "Test lesson",
+                    "avoid_next_time": "Test avoid",
+                    "confidence": 0.9,
+                    "needs_user_feedback": True,
+                }
+            },
+            "judged_count": 0,
+        },
+    )
+
+    _run_main(monkeypatch, {"session_id": "dup-s", "tool_name": "Bash"})
+    first_output = capsys.readouterr().out
+    assert "Test lesson" in first_output
+
+    _run_main(monkeypatch, {"session_id": "dup-s", "tool_name": "Edit"})
+    second_output = capsys.readouterr().out
+    assert "Test lesson" not in second_output
+
+
+def test_no_pending_reflections_no_injection(isolated_data_root, monkeypatch, capsys):
+    _write_reflections(
+        isolated_data_root,
+        {
+            "reflections": {
+                "fp1": {
+                    "fingerprint": "fp1",
+                    "lesson": "No feedback flag",
+                    "avoid_next_time": "",
+                    "confidence": 0.9,
+                }
+            },
+            "judged_count": 5,
+        },
+    )
+
+    _run_main(monkeypatch, {"session_id": "no-pending", "tool_name": "Bash"})
+    output = capsys.readouterr().out
+    assert output == ""
+
+
+def test_staging_candidates_injected(isolated_data_root, monkeypatch, capsys):
+    candidate_dir = isolated_data_root / "candidate-skills" / "verify"
+    candidate_dir.mkdir(parents=True)
+    (candidate_dir / "candidate.json").write_text(
+        json.dumps({
+            "name": "verify",
+            "status": "staging",
+            "confidence": 0.8,
+            "failure_pattern": "Skipped test rerun",
+        }),
+        encoding="utf-8",
+    )
+
+    _run_main(monkeypatch, {"session_id": "cand-s", "tool_name": "Bash"})
+
+    output = json.loads(capsys.readouterr().out)
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "verify" in ctx
+    assert "create:{name}" in ctx
+
+
+def test_pending_reflection_injection_filters_by_cwd(isolated_data_root, monkeypatch, capsys):
+    _write_reflections(
+        isolated_data_root,
+        {
+            "reflections": {
+                "repo": {
+                    "fingerprint": "repo",
+                    "reflection_id": "r-repo",
+                    "session_ids": ["C:/repo/session"],
+                    "lesson": "Repo lesson",
+                    "confidence": 0.8,
+                    "needs_user_feedback": True,
+                },
+                "other": {
+                    "fingerprint": "other",
+                    "reflection_id": "r-other",
+                    "session_ids": ["C:/other/session"],
+                    "lesson": "Other lesson",
+                    "confidence": 0.9,
+                    "needs_user_feedback": True,
+                },
+            },
+            "judged_count": 0,
+        },
+    )
+
+    _run_main(monkeypatch, {"session_id": "cwd-s", "tool_name": "Bash", "tool_input": {"cwd": "C:/repo"}})
+
+    output = json.loads(capsys.readouterr().out)
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "Repo lesson" in ctx
+    assert "Other lesson" not in ctx

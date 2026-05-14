@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import io
 
 import inject_context
-from common import DEFAULT_CONFIG
+from common import DEFAULT_CONFIG, session_dir
 
 
 def _config(max_items=5, max_chars=2000):
@@ -225,3 +226,28 @@ def test_build_context_prompt_after_judged_when_feedback_pending(isolated_data_r
     assert "Pending lesson." in context
     assert "reflection-pending" in context
     assert "你的反馈将帮助系统学习什么值得记住" in context
+
+
+def test_main_does_not_mark_pending_shown_for_plain_reflection(isolated_data_root, monkeypatch, capsys):
+    _write_index(
+        isolated_data_root,
+        {
+            "judged_count": 5,
+            "reflections": {
+                "fp": {
+                    "fingerprint": "fp",
+                    "reflection_id": "reflection-plain",
+                    "lesson": "Plain reusable lesson.",
+                    "confidence": 0.9,
+                    "updated_at": "2026-05-14T00:00:00Z",
+                }
+            },
+        },
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": "plain-session"})))
+
+    assert inject_context.main() == 0
+    output = json.loads(capsys.readouterr().out)
+
+    assert "Plain reusable lesson." in output["hookSpecificOutput"]["additionalContext"]
+    assert not (session_dir("plain-session") / ".pending_shown").exists()
