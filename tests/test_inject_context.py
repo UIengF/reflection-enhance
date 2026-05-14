@@ -116,12 +116,12 @@ def test_build_context_respects_max_items_and_max_chars(isolated_data_root):
         },
     )
 
-    context = inject_context.build_context(_config(max_items=2, max_chars=170), "")
+    context = inject_context.build_context(_config(max_items=2, max_chars=250), "")
 
     assert "Lesson 0" in context
     assert "Lesson 1" in context
     assert "Lesson 2" not in context
-    assert len(context) <= 184
+    assert len(context) <= 264
     assert context.endswith("...[truncated]")
 
 def test_build_context_includes_staging_candidates(isolated_data_root):

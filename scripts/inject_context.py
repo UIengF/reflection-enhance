@@ -45,6 +45,9 @@ def build_context(config: dict[str, Any], cwd: str = "") -> str:
     candidates = _load_staging_candidates()
 
     parts: list[str] = []
+    if reflections and (judged_count < 5 or has_pending_validation):
+        parts.append('→ 回复 "keep:<reflection_id> 原因" 或 "dismiss:<reflection_id> 原因"。你的反馈将帮助系统学习什么值得记住。')
+
     if reflections:
         lines = ["Reflection-enhancement reminders from previous sessions:"]
         for item in reflections[:max_items]:
@@ -71,9 +74,6 @@ def build_context(config: dict[str, Any], cwd: str = "") -> str:
                 lines.append(f"  复用范围: {reuse_scope}")
         lines.append('→ 回复 "create:{name}" 或 "skip:{name}"')
         parts.append("\n".join(lines))
-
-    if reflections and (judged_count < 5 or has_pending_validation):
-        parts.append('→ 回复 "keep:<reflection_id> 原因" 或 "dismiss:<reflection_id> 原因"。你的反馈将帮助系统学习什么值得记住。')
 
     if not parts:
         return ""
