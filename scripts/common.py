@@ -90,7 +90,7 @@ def append_jsonl(path: Path, obj: dict[str, Any]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8", newline="\n") as handle:
-        handle.write(json.dumps(obj, ensure_ascii=False, sort_keys=True) + "\n")
+        handle.write(json.dumps(obj, ensure_ascii=True, sort_keys=True) + "\n")
 
 
 def load_config() -> dict[str, Any]:

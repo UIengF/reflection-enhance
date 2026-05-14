@@ -577,6 +577,7 @@ def _store_reflection(reflection: dict[str, Any], session_id: str, decision: dic
 def _auto_judge_reflection(reflection: dict[str, Any]) -> None:
     rules_path = data_root() / "reflections" / "rules.json"
     if not rules_path.exists():
+        _mark_reflection_needs_user_feedback(reflection)
         return
     try:
         with rules_path.open("r", encoding="utf-8") as handle:
