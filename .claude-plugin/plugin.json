@@ -1,0 +1,7 @@
+{
+  "name": "reflection-enhance",
+  "version": "0.1.0",
+  "description": "Collect Claude Code hook events and prepare reflection enhancement artifacts.",
+  "author": "UIengF",
+  "hooks": "../hooks/hooks.json"
+}
